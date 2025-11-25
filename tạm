@@ -1,0 +1,765 @@
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local CoreGui          = game:GetService("CoreGui")
+local Workspace        = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+
+local plr  = Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local hum  = char:WaitForChild("Humanoid")
+local hrp  = char:WaitForChild("HumanoidRootPart")
+
+local noAnimEnabled  = false
+local boosterEnabled = false
+local flyEnabled     = false
+local esyncEnabled   = false
+local antiKBEnabled  = false
+
+local quickInteract = false
+local quickThread   = nil
+local originalHold  = {}
+
+local godModeEnabled = false
+local godConn
+
+-- 🔹 chỉ auto drop cho FloatV1 ở lần đầu trong 1 mạng
+local hasDroppedForFloatV1 = false
+local droppingForFloat = false
+local floatToolsOrder = {
+    "Coil Combo",
+    "Gravity Coil",
+    "Speed Coil",
+}
+
+local function applyGodMode()
+    if not (char and hum) then return end
+    godModeEnabled = true
+    hum.MaxHealth = math.huge
+    hum.Health    = math.huge
+
+    if godConn then godConn:Disconnect() end
+    godConn = hum:GetPropertyChangedSignal("Health"):Connect(function()
+        if godModeEnabled and hum.Health < hum.MaxHealth then
+            hum.Health = hum.MaxHealth
+        end
+    end)
+end
+
+local function disableGodMode()
+    godModeEnabled = false
+    if godConn then godConn:Disconnect() end
+
+    if hum and hum.Health > 0 then
+        hum.MaxHealth = 100
+        hum.Health    = 100
+    end
+end
+
+local function refreshGodMode()
+    if (boosterEnabled or flyEnabled or esyncEnabled or antiKBEnabled) then
+        if not godModeEnabled then
+            applyGodMode()
+        end
+    else
+        if godModeEnabled then
+            disableGodMode()
+        end
+    end
+end
+
+local keybinds = {
+    NoAnim   = Enum.KeyCode.N,
+    Booster  = Enum.KeyCode.G,
+    Fly      = Enum.KeyCode.F,
+    FloatV1  = Enum.KeyCode.V,
+    Quick    = Enum.KeyCode.H,
+    AntiKB   = Enum.KeyCode.B,
+}
+
+local function keycodeToStr(kc)
+    return kc and kc.Name or "None"
+end
+
+local currentRebinding
+
+local oldGui = CoreGui:FindFirstChild("NoAnimDesyncGui")
+if oldGui then oldGui:Destroy() end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "NoAnimDesyncGui"
+gui.Parent = CoreGui
+
+local frame = Instance.new("Frame")
+frame.Parent = gui
+frame.Size = UDim2.new(0, 170, 0, 160)
+frame.Position = UDim2.new(0.04, 0, 0.32, 0)
+frame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+frame.Active = true
+frame.Draggable = true
+
+local frameCorner = Instance.new("UICorner")
+frameCorner.CornerRadius = UDim.new(0, 6)
+frameCorner.Parent = frame
+
+local title = Instance.new("TextLabel")
+title.Parent = frame
+title.Size = UDim2.new(1, 0, 0, 18)
+title.Text = "Galaxy Hub"
+title.TextScaled = true
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.Font = Enum.Font.GothamBold
+
+local function createRow(yPos)
+    local btn = Instance.new("TextButton")
+    btn.Parent = frame
+    btn.Size = UDim2.new(1, -60, 0, 18)
+    btn.Position = UDim2.new(0, 8, 0, yPos)
+    btn.TextScaled = true
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
+    btn.Font = Enum.Font.GothamBold
+
+    local c1 = Instance.new("UICorner")
+    c1.CornerRadius = UDim.new(0, 5)
+    c1.Parent = btn
+
+    local keyBtn = Instance.new("TextButton")
+    keyBtn.Parent = frame
+    keyBtn.Size = UDim2.new(0, 40, 0, 16)
+    keyBtn.Position = UDim2.new(1, -48, 0, yPos + 1)
+    keyBtn.TextScaled = true
+    keyBtn.TextColor3 = Color3.fromRGB(230,230,230)
+    keyBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    keyBtn.Font = Enum.Font.GothamMedium
+    keyBtn.Text = "Key"
+
+    local c2 = Instance.new("UICorner")
+    c2.CornerRadius = UDim.new(0, 4)
+    c2.Parent = keyBtn
+
+    return btn, keyBtn
+end
+
+local noAnimBtn,  noAnimKeyBtn   = createRow(22)
+local boosterBtn, boosterKeyBtn  = createRow(42)
+local flyBtn,     flyKeyBtn      = createRow(62)
+local esyncBtn,   esyncKeyBtn    = createRow(82)
+local quickBtn,   quickKeyBtn    = createRow(102)
+local antiKBBtn,  antiKBKeyBtn   = createRow(122)
+
+noAnimBtn.Text = "NoAnim: OFF"
+noAnimBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+noAnimKeyBtn.Text = keycodeToStr(keybinds.NoAnim)
+
+boosterBtn.Text = "Booster: OFF"
+boosterBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+boosterKeyBtn.Text = keycodeToStr(keybinds.Booster)
+
+flyBtn.Text = "Fly: OFF"
+flyBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+flyKeyBtn.Text = keycodeToStr(keybinds.Fly)
+
+esyncBtn.Text = "FloatV1: OFF"
+esyncBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+esyncKeyBtn.Text = keycodeToStr(keybinds.FloatV1)
+
+quickBtn.Text = "QuickInteract: OFF"
+quickBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+quickKeyBtn.Text = keycodeToStr(keybinds.Quick)
+
+antiKBBtn.Text = "AntiKB: OFF"
+antiKBBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+antiKBKeyBtn.Text = keycodeToStr(keybinds.AntiKB)
+
+local humanoidAnimConn
+
+local function applyNoAnim(humanoid)
+    local animate = humanoid.Parent:FindFirstChild("Animate")
+    if animate then
+        animate.Disabled = true
+    end
+
+    for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+        track:Stop()
+    end
+
+    if humanoidAnimConn then
+        humanoidAnimConn:Disconnect()
+    end
+
+    humanoidAnimConn = humanoid.AnimationPlayed:Connect(function(track)
+        if noAnimEnabled then
+            task.wait()
+            track:Stop()
+        end
+    end)
+end
+
+local function restoreAnim(humanoid)
+    local animate = humanoid.Parent:FindFirstChild("Animate")
+    if animate then
+        animate.Disabled = false
+    end
+
+    if humanoidAnimConn then
+        humanoidAnimConn:Disconnect()
+        humanoidAnimConn = nil
+    end
+end
+
+-- 🔹 Booster (chỉ chạy nhanh, không buff nhảy / gravity)
+local BOOST_SPEED = 27
+local boosterMoveConn
+
+local function stopBoosterInternal()
+    if boosterMoveConn then
+        boosterMoveConn:Disconnect()
+        boosterMoveConn = nil
+    end
+end
+
+local function applyBooster()
+    stopBoosterInternal()
+    if not boosterEnabled or not (char and hum and hum.RootPart) then return end
+
+    boosterMoveConn = RunService.Heartbeat:Connect(function()
+        if not boosterEnabled or not (char and hum and hum.RootPart) then return end
+        if flyEnabled or esyncEnabled then return end
+        local moveDir = hum.MoveDirection
+        if moveDir.Magnitude > 0 then
+            local root = hum.RootPart
+            local vel = root.AssemblyLinearVelocity
+            root.AssemblyLinearVelocity = Vector3.new(
+                moveDir.X * BOOST_SPEED,
+                vel.Y,
+                moveDir.Z * BOOST_SPEED
+            )
+        end
+    end)
+end
+
+-- 🔹 AntiKB mới
+local antiKBConns = {}
+
+local function clearAntiKBConns()
+    for _, c in ipairs(antiKBConns) do
+        pcall(function() c:Disconnect() end)
+    end
+    antiKBConns = {}
+end
+
+local function cleanRagdollStuff()
+    if not (char and hum) then return end
+    local c = char
+    local animator = hum:FindFirstChildOfClass("Animator")
+
+    for _, obj in ipairs(c:GetDescendants()) do
+        if obj:IsA("BallSocketConstraint")
+        or obj:IsA("NoCollisionConstraint")
+        or obj:IsA("HingeConstraint") then
+            obj:Destroy()
+        elseif obj:IsA("Attachment") and (obj.Name == "A" or obj.Name == "B") then
+            obj:Destroy()
+        elseif obj:IsA("BodyVelocity")
+        or obj:IsA("BodyPosition")
+        or obj:IsA("BodyGyro") then
+            obj:Destroy()
+        end
+    end
+
+    for _, m in ipairs(c:GetDescendants()) do
+        if m:IsA("Motor6D") then
+            m.Enabled = true
+        end
+    end
+
+    if animator then
+        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+            local name = (track.Animation and track.Animation.Name or ""):lower()
+            if name:find("rag") or name:find("fall") or name:find("hurt") or name:find("down") then
+                track:Stop(0)
+            end
+        end
+    end
+end
+
+local ANTI_MAX_FORWARD = 22   -- tốc độ tối đa theo hướng bạn đang chạy
+local ANTI_MAX_IDLE    = 8    -- nếu không bấm phím, cho trôi nhẹ thôi
+local ANTI_MAX_Y       = 25   -- clamp lực văng lên/xuống
+
+local function computeAntiKBVelocity()
+    if not (char and hum and hum.RootPart) then
+        return Vector3.new(0,0,0)
+    end
+
+    local root = hum.RootPart
+    local vel  = root.AssemblyLinearVelocity
+    local moveDir = hum.MoveDirection
+
+    local horiz = Vector3.new(vel.X, 0, vel.Z)
+    local y     = math.clamp(vel.Y, -ANTI_MAX_Y, ANTI_MAX_Y)
+
+    if moveDir.Magnitude > 0.1 then
+        -- Giữ chuyển động theo hướng mình đang input, xoá hết lực ngang khác hướng
+        local dir = moveDir.Unit
+        local forwardMag = horiz:Dot(dir) -- thành phần cùng hướng di chuyển
+        local clampedForward = math.clamp(forwardMag, -ANTI_MAX_FORWARD, ANTI_MAX_FORWARD)
+        local forwardVec = dir * clampedForward
+        return Vector3.new(forwardVec.X, y, forwardVec.Z)
+    else
+        -- Không bấm phím: cho trôi nhẹ, xoá knockback mạnh
+        local mag = horiz.Magnitude
+        if mag > ANTI_MAX_IDLE then
+            horiz = horiz.Unit * ANTI_MAX_IDLE
+        end
+        return Vector3.new(horiz.X, y, horiz.Z)
+    end
+end
+
+local function startAntiKBInternal()
+    clearAntiKBConns()
+    if not (char and hum and hum.RootPart) then return end
+
+    local root = hum.RootPart
+
+    -- Ép state về Running + dọn ragdoll khi bị knock
+    table.insert(antiKBConns, hum.StateChanged:Connect(function(_, newState)
+        if not antiKBEnabled then return end
+        if newState == Enum.HumanoidStateType.FallingDown
+        or newState == Enum.HumanoidStateType.Ragdoll
+        or newState == Enum.HumanoidStateType.Physics
+        or newState == Enum.HumanoidStateType.PlatformStanding then
+            cleanRagdollStuff()
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end))
+
+    -- Chặn impulse knockback từ combat remote nếu có
+    pcall(function()
+        local rs = game:GetService("ReplicatedStorage")
+        local packages = rs:FindFirstChild("Packages")
+        if packages and packages:FindFirstChild("Net") then
+            local net = packages.Net
+            local ev = net:FindFirstChild("RE/CombatService/ApplyImpulse")
+            if ev and ev:IsA("RemoteEvent") then
+                table.insert(antiKBConns, ev.OnClientEvent:Connect(function()
+                    if not antiKBEnabled then return end
+                    root.AssemblyLinearVelocity = computeAntiKBVelocity()
+                end))
+            end
+        end
+    end)
+
+    -- Nếu game spawn thêm constraint ragdoll thì dọn
+    table.insert(antiKBConns, char.DescendantAdded:Connect(function()
+        if not antiKBEnabled then return end
+        task.defer(cleanRagdollStuff)
+    end))
+
+    -- Mỗi frame override velocity -> gần như không ăn knockback
+    table.insert(antiKBConns, RunService.Heartbeat:Connect(function()
+        if not antiKBEnabled or not (char and hum and hum.RootPart) then return end
+        cleanRagdollStuff()
+        hum.RootPart.AssemblyLinearVelocity = computeAntiKBVelocity()
+    end))
+
+    cleanRagdollStuff()
+end
+
+local function stopAntiKBInternal()
+    clearAntiKBConns()
+end
+
+local function setupChar(c)
+    char = c
+    hum  = char:WaitForChild("Humanoid")
+    hrp  = char:WaitForChild("HumanoidRootPart")
+
+    -- reset flag mỗi lần respawn
+    hasDroppedForFloatV1 = false
+
+    if noAnimEnabled then
+        applyNoAnim(hum)
+    else
+        restoreAnim(hum)
+    end
+
+    if boosterEnabled then
+        applyBooster()
+    else
+        stopBoosterInternal()
+    end
+
+    if antiKBEnabled then
+        startAntiKBInternal()
+    else
+        stopAntiKBInternal()
+    end
+
+    refreshGodMode()
+end
+
+setupChar(char)
+plr.CharacterAdded:Connect(setupChar)
+
+local flySpeed       = 16
+local esyncSpeed     = 16
+local esyncFallSpeed = 0.5
+
+RunService.Heartbeat:Connect(function(dt)
+    if not (char and hum and hum.RootPart) then
+        return
+    end
+
+    local root = hum.RootPart
+
+    if flyEnabled then
+        local cam = Workspace.CurrentCamera
+        if not cam then return end
+
+        local look = cam.CFrame.LookVector
+        local moveDir = hum.MoveDirection
+
+        local horizontal = Vector3.new(look.X, 0, look.Z)
+        if horizontal.Magnitude > 0 then
+            horizontal = horizontal.Unit
+        end
+
+        local vel = Vector3.new(0, 0, 0)
+
+        if moveDir.Magnitude > 0.1 then
+            vel = vel + horizontal * flySpeed
+        end
+
+        if look.Y > 0.25 then
+            vel = vel + Vector3.new(0, flySpeed, 0)
+        elseif look.Y < -0.25 then
+            vel = vel + Vector3.new(0, -flySpeed, 0)
+        end
+
+        root.AssemblyLinearVelocity = vel
+
+        local flatVel = Vector3.new(vel.X, 0, vel.Z)
+        if flatVel.Magnitude > 1 then
+            root.CFrame = CFrame.new(root.Position, root.Position + flatVel)
+        end
+
+        return
+    end
+
+    if esyncEnabled then
+        local cam = Workspace.CurrentCamera
+        if not cam then return end
+
+        local look = cam.CFrame.LookVector
+        local moveDir = hum.MoveDirection
+
+        local horizontal = Vector3.new(look.X, 0, look.Z)
+        if horizontal.Magnitude > 0 then
+            horizontal = horizontal.Unit
+        else
+            horizontal = Vector3.new(0,0,0)
+        end
+
+        local driftFactor = 1.3
+        local horizVel = Vector3.new(0,0,0)
+        if moveDir.Magnitude > 0.1 then
+            horizVel = horizontal * esyncSpeed * driftFactor
+        end
+
+        local vel = horizVel + Vector3.new(0, -esyncFallSpeed, 0)
+        root.AssemblyLinearVelocity = vel
+        return
+    end
+end)
+
+local function getPromptPos(prompt)
+    if not prompt or not prompt.Parent then return nil end
+    local parent = prompt.Parent
+
+    if parent:IsA("BasePart") then
+        return parent.Position
+    elseif parent:IsA("Attachment") then
+        return parent.WorldPosition
+    elseif parent:IsA("Model") and parent.PrimaryPart then
+        return parent.PrimaryPart.Position
+    end
+    return nil
+end
+
+local function toggleQuickInteract()
+    quickInteract = not quickInteract
+
+    quickBtn.Text = "QuickInteract: " .. (quickInteract and "ON" or "OFF")
+    quickBtn.BackgroundColor3 = quickInteract and Color3.fromRGB(0,200,130) or Color3.fromRGB(120,0,0)
+
+    if not quickInteract then
+        if quickThread then
+            pcall(function()
+                task.cancel(quickThread)
+            end)
+            quickThread = nil
+        end
+
+        for p,hold in pairs(originalHold) do
+            if p and p:IsA("ProximityPrompt") then
+                p.HoldDuration = hold
+            end
+        end
+        originalHold = {}
+        return
+    end
+
+    quickThread = task.spawn(function()
+        while quickInteract do
+            task.wait(0.15)
+
+            if not hrp or not hrp.Parent then
+                -- skip
+            else
+                local prompts = Workspace:GetDescendants()
+                for i = 1, #prompts do
+                    local v = prompts[i]
+                    if v:IsA("ProximityPrompt") and v.Enabled then
+                        if originalHold[v] == nil then
+                            originalHold[v] = v.HoldDuration
+                        end
+
+                        v.HoldDuration = 0
+
+                        local pos = getPromptPos(v)
+                        if pos then
+                            local dist = (hrp.Position - pos).Magnitude
+                            if dist <= 10 then
+                                pcall(function()
+                                    fireproximityprompt(v)
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopAllModes()
+    flyEnabled    = false
+    esyncEnabled  = false
+
+    flyBtn.Text = "Fly: OFF"
+    flyBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+
+    esyncBtn.Text = "FloatV1: OFF"
+    esyncBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+
+    if hum and hum.RootPart then
+        hum.RootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+    end
+end
+
+local function toggleNoAnim()
+    noAnimEnabled = not noAnimEnabled
+    noAnimBtn.Text = "NoAnim: " .. (noAnimEnabled and "ON" or "OFF")
+    noAnimBtn.BackgroundColor3 = noAnimEnabled and Color3.fromRGB(0,200,130) or Color3.fromRGB(120,0,0)
+
+    if hum then
+        if noAnimEnabled then
+            applyNoAnim(hum)
+        else
+            restoreAnim(hum)
+        end
+    end
+end
+
+local function setBooster(state)
+    boosterEnabled = state
+    boosterBtn.Text = "Booster: " .. (state and "ON" or "OFF")
+    boosterBtn.BackgroundColor3 = state and Color3.fromRGB(0,200,130) or Color3.fromRGB(120,0,0)
+
+    if state then
+        applyBooster()
+    else
+        stopBoosterInternal()
+    end
+    refreshGodMode()
+end
+
+local function toggleBooster()
+    setBooster(not boosterEnabled)
+end
+
+local function toggleFly()
+    if not flyEnabled then
+        stopAllModes()
+        flyEnabled = true
+        flyBtn.Text = "Fly: ON"
+        flyBtn.BackgroundColor3 = Color3.fromRGB(0,200,130)
+    else
+        flyEnabled = false
+        flyBtn.Text = "Fly: OFF"
+        flyBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+
+        if hum and hum.RootPart then
+            hum.RootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+        end
+    end
+    refreshGodMode()
+end
+
+-- 🔹 Auto drop 3 tool cho FloatV1 (y chang script bạn gửi)
+local function autoDropForFloatV1(callback)
+    if droppingForFloat or hasDroppedForFloatV1 then
+        if callback then callback() end
+        return
+    end
+    droppingForFloat = true
+
+    task.spawn(function()
+        local lp = plr
+        local c = lp.Character
+        local backpack = lp:FindFirstChild("Backpack")
+
+        if c and backpack then
+            for _, name in ipairs(floatToolsOrder) do
+                local tool = backpack:FindFirstChild(name) or c:FindFirstChild(name)
+                if tool and tool:IsA("Tool") then
+                    if tool.Parent == backpack then
+                        tool.Parent = c
+                        task.wait(0.1)
+                    end
+
+                    local held = c:FindFirstChildOfClass("Tool")
+                    if held then
+                        held.Parent = Workspace
+                    end
+                end
+                task.wait(0.1)
+            end
+        end
+
+        droppingForFloat = false
+        hasDroppedForFloatV1 = true
+
+        if callback then
+            callback()
+        end
+    end)
+end
+
+local function toggleFloatV1()
+    if not esyncEnabled then
+        stopAllModes()
+
+        if not hasDroppedForFloatV1 then
+            esyncBtn.Text = "FloatV1: DROP..."
+            esyncBtn.BackgroundColor3 = Color3.fromRGB(255,170,0)
+
+            autoDropForFloatV1(function()
+                if esyncEnabled then return end
+                esyncEnabled = true
+                esyncBtn.Text = "FloatV1: ON"
+                esyncBtn.BackgroundColor3 = Color3.fromRGB(0,200,130)
+                refreshGodMode()
+            end)
+        else
+            esyncEnabled = true
+            esyncBtn.Text = "FloatV1: ON"
+            esyncBtn.BackgroundColor3 = Color3.fromRGB(0,200,130)
+            refreshGodMode()
+        end
+    else
+        esyncEnabled = false
+        esyncBtn.Text = "FloatV1: OFF"
+        esyncBtn.BackgroundColor3 = Color3.fromRGB(120,0,0)
+
+        if hum and hum.RootPart then
+            hum.RootPart.AssemblyLinearVelocity = Vector3.new(0,0,0)
+        end
+        refreshGodMode()
+    end
+end
+
+local function toggleAntiKB()
+    antiKBEnabled = not antiKBEnabled
+    antiKBBtn.Text = "AntiKB: " .. (antiKBEnabled and "ON" or "OFF")
+    antiKBBtn.BackgroundColor3 = antiKBEnabled and Color3.fromRGB(0,200,130) or Color3.fromRGB(120,0,0)
+
+    if antiKBEnabled then
+        startAntiKBInternal()
+    else
+        stopAntiKBInternal()
+    end
+
+    refreshGodMode()
+end
+
+noAnimBtn.MouseButton1Click:Connect(toggleNoAnim)
+boosterBtn.MouseButton1Click:Connect(toggleBooster)
+flyBtn.MouseButton1Click:Connect(toggleFly)
+esyncBtn.MouseButton1Click:Connect(toggleFloatV1)
+quickBtn.MouseButton1Click:Connect(toggleQuickInteract)
+antiKBBtn.MouseButton1Click:Connect(toggleAntiKB)
+
+local function startRebind(modeName, btn)
+    currentRebinding = {mode = modeName, button = btn}
+    btn.Text = "..."
+end
+
+noAnimKeyBtn.MouseButton1Click:Connect(function()
+    startRebind("NoAnim", noAnimKeyBtn)
+end)
+
+boosterKeyBtn.MouseButton1Click:Connect(function()
+    startRebind("Booster", boosterKeyBtn)
+end)
+
+flyKeyBtn.MouseButton1Click:Connect(function()
+    startRebind("Fly", flyKeyBtn)
+end)
+
+esyncKeyBtn.MouseButton1Click:Connect(function()
+    startRebind("FloatV1", esyncKeyBtn)
+end)
+
+quickKeyBtn.MouseButton1Click:Connect(function()
+    startRebind("Quick", quickKeyBtn)
+end)
+
+antiKBKeyBtn.MouseButton1Click:Connect(function()
+    startRebind("AntiKB", antiKBKeyBtn)
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if currentRebinding then
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            local kc = input.KeyCode
+            if kc ~= Enum.KeyCode.Unknown then
+                keybinds[currentRebinding.mode] = kc
+                currentRebinding.button.Text = keycodeToStr(kc)
+                currentRebinding = nil
+            end
+        end
+        return
+    end
+
+    if gameProcessed then return end
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+    local kc = input.KeyCode
+
+    if kc == keybinds.NoAnim then
+        toggleNoAnim()
+    elseif kc == keybinds.Booster then
+        toggleBooster()
+    elseif kc == keybinds.Fly then
+        toggleFly()
+    elseif kc == keybinds.FloatV1 then
+        toggleFloatV1()
+    elseif kc == keybinds.Quick then
+        toggleQuickInteract()
+    elseif kc == keybinds.AntiKB then
+        toggleAntiKB()
+    end
+end)
