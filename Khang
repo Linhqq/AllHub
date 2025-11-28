@@ -1,0 +1,584 @@
+--🔥 PANTBALL GUN AIM + AUTO GUN + LASER AIM
+--  - Aim: ON  -> aim CHÂN gần nhất (ALL gun click đều bắn vào chân)
+--  - Aim: OFF -> bắn chay theo hướng nhìn
+--  - Gun: ON  -> auto bắn Pantball mỗi 0.20s, giữ súng lại (0.05s re-equip)
+--  - Laser: vẫn equip mỗi 3s, và bắn LaserGun_Fire cũng aim cùng điểm
+
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local Workspace         = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui           = game:GetService("CoreGui")
+
+local plr  = Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local hum  = char:WaitForChild("Humanoid")
+
+-- 👉 Tên Pantball / Paintball
+local PANTBALL_NAMES = {
+    "Pantball Gun",
+    "Paintball Gun",
+}
+
+local LASER_NAMES = {
+    "Laser Gun",
+}
+
+-- 👉 Remote bắn Pantball + Laser
+local REUseItem      -- Pantball: RE/UseItem(pos)
+local RELaserGun     -- Laser:   RE/LaserGun_Fire(id, posVec, dirVec, time)
+
+pcall(function()
+    local packages = ReplicatedStorage:WaitForChild("Packages")
+    local net      = packages:WaitForChild("Net")
+    REUseItem      = net:FindFirstChild("RE/UseItem")
+    RELaserGun     = net:FindFirstChild("RE/LaserGun_Fire")
+end)
+
+-- ID Laser lấy từ log
+local LASER_ID = "96f1c234fdf04bdd8bf9fa21991bb745"
+
+-- Helper tạo vector đúng kiểu game dùng
+local function makeVec(x, y, z)
+    if typeof(vector) == "table" and typeof(vector.create) == "function" then
+        return vector.create(x, y, z)
+    else
+        return Vector3.new(x, y, z)
+    end
+end
+
+-- STATE
+local aimEnabled          = true   -- Aim ON mặc định
+local autoEnabled         = false  -- Auto OFF mặc định
+local autoConn            = nil
+local PB_CurrentTarget    = nil
+local PB_LineBeam         = nil
+local PB_LocalAttachment  = nil
+local PB_TargetAttachment = nil
+local PB_FireAccum        = 0
+local PB_LastFireTime     = 0
+
+-- giữ Pantball Gun cho auto
+local PantballTool = nil
+local PantConn     = nil
+local LAST_EQUIP_PANT   = 0
+local EQUIP_DELAY_PANT  = 0.05  -- 0.05s re-equip
+
+-- Laser equip mỗi 3s
+local LaserTimer = 0
+
+--------------------------------------------------
+-- GIỮ PANTBALL GUN (CHỈ KHI GUN ON)
+--------------------------------------------------
+local function UnbindPantball()
+    if PantConn then
+        PantConn:Disconnect()
+        PantConn = nil
+    end
+    PantballTool = nil
+end
+
+local function SafeEquipPant(tool)
+    if not (char and hum and tool) then return end
+
+    local now = tick()
+    if now - LAST_EQUIP_PANT < EQUIP_DELAY_PANT then
+        return
+    end
+    LAST_EQUIP_PANT = now
+
+    task.defer(function()
+        pcall(function()
+            hum:EquipTool(tool)
+        end)
+    end)
+end
+
+local function IsPantballTool(tool)
+    if not tool or not tool:IsA("Tool") then return false end
+    for _, name in ipairs(PANTBALL_NAMES) do
+        if tool.Name == name then
+            return true
+        end
+    end
+    return false
+end
+
+local function BindPantball(tool)
+    UnbindPantball()
+    PantballTool = tool
+    if not tool then return end
+
+    -- 🔥 CHỈ RE-EQUIP KHI GUN ĐANG ON
+    PantConn = tool:GetPropertyChangedSignal("Parent"):Connect(function()
+        if not autoEnabled then
+            return -- aim-only thì kệ, không ép equip
+        end
+        if tool.Parent ~= char then
+            SafeEquipPant(tool)
+        end
+    end)
+end
+
+local function FindAndEquipPantball()
+    if not (char and hum) then
+        UnbindPantball()
+        return nil
+    end
+
+    local backpack = plr:FindFirstChild("Backpack")
+    local found
+
+    -- ưu tiên đang cầm
+    for _, name in ipairs(PANTBALL_NAMES) do
+        local t = char:FindFirstChild(name)
+        if t and t:IsA("Tool") then
+            found = t
+            break
+        end
+    end
+
+    -- nếu không thì tìm trong backpack
+    if not found and backpack then
+        for _, name in ipairs(PANTBALL_NAMES) do
+            local t = backpack:FindFirstChild(name)
+            if t and t:IsA("Tool") then
+                found = t
+                break
+            end
+        end
+    end
+
+    if found then
+        SafeEquipPant(found)
+        BindPantball(found)
+        return found
+    else
+        UnbindPantball()
+        return nil
+    end
+end
+
+-- chỉ bảo kê Pantball khi GUN đang ON
+RunService.Heartbeat:Connect(function()
+    if autoEnabled and PantballTool and PantballTool.Parent ~= char then
+        SafeEquipPant(PantballTool)
+    end
+end)
+
+--------------------------------------------------
+-- TÌM LASER GUN (KO BIND)
+--------------------------------------------------
+local function FindLaserGun()
+    if not (char and hum) then return nil end
+    local backpack = plr:FindFirstChild("Backpack")
+    local found
+
+    for _, name in ipairs(LASER_NAMES) do
+        local t = char:FindFirstChild(name)
+        if t and t:IsA("Tool") then
+            found = t
+            break
+        end
+    end
+
+    if not found and backpack then
+        for _, name in ipairs(LASER_NAMES) do
+            local t = backpack:FindFirstChild(name)
+            if t and t:IsA("Tool") then
+                found = t
+                break
+            end
+        end
+    end
+
+    return found
+end
+
+--------------------------------------------------
+-- GUI
+--------------------------------------------------
+local oldGui = CoreGui:FindFirstChild("PantballAimGui")
+if oldGui then oldGui:Destroy() end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "PantballAimGui"
+gui.ResetOnSpawn = false
+gui.Parent = CoreGui
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 220, 0, 110)
+frame.Position = UDim2.new(0, 20, 0.3, 0)
+frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+frame.Parent = gui
+
+local frameCorner = Instance.new("UICorner")
+frameCorner.CornerRadius = UDim.new(0, 8)
+frameCorner.Parent = frame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -10, 0, 22)
+title.Position = UDim2.new(0, 5, 0, 4)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.Text = "Pantball + Laser"
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.TextScaled = true
+title.Parent = frame
+
+local targetLabel = Instance.new("TextLabel")
+targetLabel.Size = UDim2.new(1, -10, 0, 20)
+targetLabel.Position = UDim2.new(0, 5, 0, 26)
+targetLabel.BackgroundTransparency = 1
+targetLabel.Font = Enum.Font.Gotham
+targetLabel.Text = "Target (Chân): None"
+targetLabel.TextColor3 = Color3.fromRGB(220,220,220)
+targetLabel.TextScaled = true
+targetLabel.Parent = frame
+
+local aimBtn = Instance.new("TextButton")
+aimBtn.Size = UDim2.new(1, -20, 0, 24)
+aimBtn.Position = UDim2.new(0, 10, 0, 50)
+aimBtn.Font = Enum.Font.GothamBold
+aimBtn.TextScaled = true
+aimBtn.TextColor3 = Color3.fromRGB(255,255,255)
+aimBtn.BackgroundColor3 = Color3.fromRGB(0,170,60) -- Aim ON
+aimBtn.BorderSizePixel = 0
+aimBtn.Parent = frame
+
+local aimCorner = Instance.new("UICorner")
+aimCorner.CornerRadius = UDim.new(0, 6)
+aimCorner.Parent = aimBtn
+
+local autoBtn = Instance.new("TextButton")
+autoBtn.Size = UDim2.new(1, -20, 0, 24)
+autoBtn.Position = UDim2.new(0, 10, 0, 80)
+autoBtn.Font = Enum.Font.GothamBold
+autoBtn.TextScaled = true
+autoBtn.TextColor3 = Color3.fromRGB(255,255,255)
+autoBtn.BackgroundColor3 = Color3.fromRGB(120,0,0) -- Auto OFF
+autoBtn.BorderSizePixel = 0
+autoBtn.Parent = frame
+
+local autoCorner = Instance.new("UICorner")
+autoCorner.CornerRadius = UDim.new(0, 6)
+autoCorner.Parent = autoBtn
+
+local function UpdateButtons()
+    aimBtn.Text = "Aim: " .. (aimEnabled and "ON" or "OFF")
+    aimBtn.BackgroundColor3 = aimEnabled and Color3.fromRGB(0,170,60) or Color3.fromRGB(120,0,0)
+
+    autoBtn.Text = "Gun: " .. (autoEnabled and "ON" or "OFF")
+    autoBtn.BackgroundColor3 = autoEnabled and Color3.fromRGB(0,170,60) or Color3.fromRGB(120,0,0)
+
+    local name = (PB_CurrentTarget and PB_CurrentTarget.Name) or "None"
+    targetLabel.Text = "Target (Chân): " .. name
+end
+
+UpdateButtons()
+
+--------------------------------------------------
+-- BEAM
+--------------------------------------------------
+local function DestroyLine()
+    if PB_LineBeam then PB_LineBeam:Destroy() PB_LineBeam = nil end
+    if PB_LocalAttachment then PB_LocalAttachment:Destroy() PB_LocalAttachment = nil end
+    if PB_TargetAttachment then PB_TargetAttachment:Destroy() PB_TargetAttachment = nil end
+end
+
+local function EnsureLine(localRoot, targetPart)
+    if not localRoot or not targetPart or not aimEnabled then
+        if PB_LineBeam then PB_LineBeam.Enabled = false end
+        return
+    end
+
+    if not PB_LocalAttachment or PB_LocalAttachment.Parent ~= localRoot then
+        if PB_LocalAttachment then PB_LocalAttachment:Destroy() end
+        PB_LocalAttachment = Instance.new("Attachment")
+        PB_LocalAttachment.Name = "PB_LocalAttach"
+        PB_LocalAttachment.Parent = localRoot
+    end
+
+    if not PB_TargetAttachment or PB_TargetAttachment.Parent ~= targetPart then
+        if PB_TargetAttachment then PB_TargetAttachment:Destroy() end
+        PB_TargetAttachment = Instance.new("Attachment")
+        PB_TargetAttachment.Name = "PB_TargetAttach"
+        PB_TargetAttachment.Parent = targetPart
+    end
+
+    if not PB_LineBeam or not PB_LineBeam.Parent then
+        PB_LineBeam = Instance.new("Beam")
+        PB_LineBeam.Name = "PB_RedLine"
+        PB_LineBeam.Attachment0 = PB_LocalAttachment
+        PB_LineBeam.Attachment1 = PB_TargetAttachment
+        PB_LineBeam.FaceCamera = false
+        PB_LineBeam.Width0 = 0.1
+        PB_LineBeam.Width1 = 0.1
+        PB_LineBeam.Color = ColorSequence.new(Color3.fromRGB(255,0,0))
+        PB_LineBeam.Transparency = NumberSequence.new(0)
+        PB_LineBeam.Parent = Workspace
+    else
+        PB_LineBeam.Attachment0 = PB_LocalAttachment
+        PB_LineBeam.Attachment1 = PB_TargetAttachment
+    end
+
+    PB_LineBeam.Enabled = true
+end
+
+--------------------------------------------------
+-- TÌM NGƯỜI + CHÂN GẦN NHẤT
+--------------------------------------------------
+local function GetNearestPlayer()
+    local c    = char
+    local root = c and c:FindFirstChild("HumanoidRootPart")
+    if not root then return nil, nil end
+
+    local nearest, shortest = nil, math.huge
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= plr and p.Character then
+            local r = p.Character:FindFirstChild("HumanoidRootPart")
+            local h = p.Character:FindFirstChildOfClass("Humanoid")
+            if r and h and h.Health > 0 then
+                local d = (root.Position - r.Position).Magnitude
+                if d < shortest then
+                    shortest = d
+                    nearest  = p
+                end
+            end
+        end
+    end
+
+    if not nearest or not nearest.Character then
+        return nil, nil
+    end
+
+    local tc = nearest.Character
+
+    -- ƯU TIÊN CÁC PART CHÂN
+    local legs = {
+        tc:FindFirstChild("LeftLowerLeg"),
+        tc:FindFirstChild("LeftFoot"),
+        tc:FindFirstChild("RightLowerLeg"),
+        tc:FindFirstChild("RightFoot"),
+        tc:FindFirstChild("LeftUpperLeg"),
+        tc:FindFirstChild("RightUpperLeg"),
+    }
+
+    for _, part in ipairs(legs) do
+        if part then
+            return nearest, part
+        end
+    end
+
+    return nearest, tc:FindFirstChild("HumanoidRootPart")
+end
+
+--------------------------------------------------
+-- AIM LOOP (update target + line, không xoay camera)
+--------------------------------------------------
+RunService.Heartbeat:Connect(function()
+    if not (char and hum and hum.RootPart) then
+        DestroyLine()
+        PB_CurrentTarget = nil
+        UpdateButtons()
+        return
+    end
+
+    local root = hum.RootPart
+
+    if aimEnabled then
+        local targetPlayer, targetPart = GetNearestPlayer()
+        PB_CurrentTarget = targetPlayer
+        UpdateButtons()
+        EnsureLine(root, targetPart)
+    else
+        PB_CurrentTarget = nil
+        DestroyLine()
+        UpdateButtons()
+    end
+end)
+
+--------------------------------------------------
+-- BẮN 1 LẦN (PANTBALL + LASER CÙNG AIM)
+--------------------------------------------------
+local function FireOnce()
+    local myChar = char
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not (myChar and hum and myRoot) then return end
+
+    -- ❗ CHỈ AUTO EQUIP PANTBALL KHI GUN ĐANG ON
+    if autoEnabled then
+        if not PantballTool or PantballTool.Parent == nil then
+            FindAndEquipPantball()
+        end
+    end
+
+    local pos
+
+    if aimEnabled then
+        local targetPlayer, targetPart = GetNearestPlayer()
+        PB_CurrentTarget = targetPlayer
+        UpdateButtons()
+        if targetPart then
+            pos = targetPart.Position
+        end
+    end
+
+    if not pos then
+        pos = myRoot.Position + myRoot.CFrame.LookVector * 10
+    end
+
+    -- 🔫 Pantball / UseItem
+    if REUseItem then
+        pcall(function()
+            REUseItem:FireServer(pos)
+        end)
+    end
+
+    -- 🔫 LaserGun_Fire cùng aim
+    if RELaserGun then
+        local dir = (pos - myRoot.Position)
+        if dir.Magnitude == 0 then
+            dir = myRoot.CFrame.LookVector
+        else
+            dir = dir.Unit
+        end
+
+        local vPos = makeVec(pos.X, pos.Y, pos.Z)
+        local vDir = makeVec(dir.X, dir.Y, dir.Z)
+
+        pcall(function()
+            RELaserGun:FireServer(LASER_ID, vPos, vDir, tick())
+        end)
+    end
+
+    PB_LastFireTime = tick()
+end
+
+--------------------------------------------------
+-- AUTO GUN LOOP (0.20s) + EQUIP LASER 3s
+--------------------------------------------------
+local function StopAutoLoop()
+    if autoConn then
+        autoConn:Disconnect()
+        autoConn = nil
+    end
+    PB_FireAccum = 0
+    LaserTimer   = 0
+end
+
+local function StartAutoLoop()
+    StopAutoLoop()
+    if not autoEnabled then return end
+
+    PB_FireAccum    = 0
+    PB_LastFireTime = tick()
+    LaserTimer      = 0
+
+    FindAndEquipPantball()
+
+    autoConn = RunService.Heartbeat:Connect(function(dt)
+        if not autoEnabled then return end
+        if not (char and hum and hum.RootPart) then return end
+
+        PB_FireAccum = PB_FireAccum + dt
+        if PB_FireAccum >= 0.20 then
+            PB_FireAccum = 0
+            FireOnce()
+        end
+
+        if (tick() - PB_LastFireTime) >= 3 then
+            FireOnce()
+        end
+
+        -- 🔥 EQUIP LASER GUN MỖI 3s (kích hoạt skill của súng)
+        LaserTimer = LaserTimer + dt
+        if LaserTimer >= 3 then
+            LaserTimer = 0
+            local laser = FindLaserGun()
+            if laser and hum then
+                pcall(function()
+                    hum:EquipTool(laser)
+                    laser:Activate()
+                end)
+                -- Sau đó listener Pantball sẽ kéo Pantball lại tay nếu autoEnabled
+            end
+        end
+    end)
+end
+
+--------------------------------------------------
+-- HOOK TOOL: GIỜ LÀ **ALL GUN** ĐỀU AIM
+--------------------------------------------------
+local function HookTool(tool)
+    if not tool:IsA("Tool") then return end
+
+    -- Nếu là Pantball thì bind giữ equip cho auto
+    if IsPantballTool(tool) then
+        BindPantball(tool)
+    end
+
+    -- Bất kỳ tool nào click cũng bắn theo FireOnce (aim chân)
+    tool.Activated:Connect(function()
+        FireOnce()
+    end)
+end
+
+for _, child in ipairs(char:GetChildren()) do
+    if child:IsA("Tool") then
+        HookTool(child)
+    end
+end
+
+char.ChildAdded:Connect(function(child)
+    if child:IsA("Tool") then
+        HookTool(child)
+    end
+end)
+
+--------------------------------------------------
+-- BUTTON EVENTS
+--------------------------------------------------
+aimBtn.MouseButton1Click:Connect(function()
+    aimEnabled = not aimEnabled
+    UpdateButtons()
+end)
+
+autoBtn.MouseButton1Click:Connect(function()
+    autoEnabled = not autoEnabled
+    UpdateButtons()
+    if autoEnabled then
+        StartAutoLoop()
+    else
+        StopAutoLoop()
+    end
+end)
+
+--------------------------------------------------
+-- RESPAWN
+--------------------------------------------------
+plr.CharacterAdded:Connect(function(c2)
+    char = c2
+    hum  = char:WaitForChild("Humanoid")
+
+    UnbindPantball()
+    DestroyLine()
+    PB_CurrentTarget = nil
+    UpdateButtons()
+
+    for _, child in ipairs(char:GetChildren()) do
+        if child:IsA("Tool") then
+            HookTool(child)
+        end
+    end
+
+    if autoEnabled then
+        StartAutoLoop()
+    else
+        StopAutoLoop()
+    end
+end)
