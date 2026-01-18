@@ -1,24 +1,25 @@
 -- ====================================
 -- AUTO FARM GUI
--- 1. Auto Bring (custom amount)
--- 2. Auto Spin (0.2s)
--- 3. Auto Dupe (Radioactive Coin)
+-- Bring coin (fast) + Auto spin
+-- Big GUI + small round toggle button
 -- ====================================
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
 local player = Players.LocalPlayer
 
 -- ===== CONFIG =====
 local BRING = false
 local SPIN = false
-local DUPE = false
-
-local BRING_DELAY = 0.5
-local SPIN_DELAY = 0.2
-local DUPE_DELAY = 0.5
 
 local BRING_LIMIT = 10
+local SPIN_DELAY = 0.2
+
+-- bring nhanh hơn (gần realtime)
+local lastBring = 0
+local BRING_INTERVAL = 0.15  -- càng nhỏ càng sát, đừng dưới 0.1 dễ lag
 
 -- ===== CHARACTER =====
 local function getHRP()
@@ -40,26 +41,29 @@ local function getAllCoins()
     return coins
 end
 
--- ===== BRING LOOP =====
-task.spawn(function()
-    while task.wait(BRING_DELAY) do
-        if BRING then
-            pcall(function()
-                local hrp = getHRP()
-                local coins = getAllCoins()
-                local count = 0
-                for _, coin in pairs(coins) do
-                    if coin and coin.Parent then
-                        coin.Anchored = false
-                        coin.CanCollide = false
-                        coin.CFrame = hrp.CFrame
-                        count += 1
-                        if count >= BRING_LIMIT then break end
-                    end
+-- ===== FAST BRING LOOP (Heartbeat) =====
+RunService.Heartbeat:Connect(function()
+    if not BRING then return end
+    if tick() - lastBring < BRING_INTERVAL then return end
+    lastBring = tick()
+
+    pcall(function()
+        local hrp = getHRP()
+        local coins = getAllCoins()
+        local count = 0
+
+        for _, coin in pairs(coins) do
+            if coin and coin.Parent then
+                coin.Anchored = false
+                coin.CanCollide = false
+                coin.CFrame = hrp.CFrame
+                count += 1
+                if count >= BRING_LIMIT then
+                    break
                 end
-            end)
+            end
         end
-    end
+    end)
 end)
 
 -- ===== AUTO SPIN LOOP =====
@@ -77,33 +81,6 @@ task.spawn(function()
     end
 end)
 
--- ===== AUTO DUPE LOOP =====
-task.spawn(function()
-    while task.wait(DUPE_DELAY) do
-        if DUPE then
-            pcall(function()
-                local eventParts = workspace:FindFirstChild("EventParts", true)
-                if eventParts then
-                    for _, item in pairs(eventParts:GetChildren()) do
-                        if item.Name == "Radioactive Coin" then
-                            local clone = item:Clone()
-                            clone.Parent = item.Parent
-
-                            if clone:IsA("Model") and clone.PrimaryPart then
-                                clone:SetPrimaryPartCFrame(item:GetPrimaryPartCFrame())
-                            elseif clone:IsA("BasePart") then
-                                clone.CFrame = item.CFrame
-                            end
-
-                            task.wait(0.01)
-                        end
-                    end
-                end
-            end)
-        end
-    end
-end)
-
 -- ====================================
 -- GUI
 -- ====================================
@@ -112,22 +89,23 @@ local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
 gui.Name = "AutoFarmGUI"
 gui.ResetOnSpawn = false
 
+-- MAIN FRAME (TO HƠN)
 local frame = Instance.new("Frame", gui)
-frame.Size = UDim2.fromScale(0.34, 0.42)
-frame.Position = UDim2.fromScale(0.04, 0.28)
+frame.Size = UDim2.fromScale(0.38, 0.36)
+frame.Position = UDim2.fromScale(0.06, 0.28)
 frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 frame.Active = true
 frame.Draggable = true
 frame.BorderSizePixel = 0
 
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0,16)
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0,18)
 local stroke = Instance.new("UIStroke", frame)
 stroke.Thickness = 2
 stroke.Color = Color3.fromRGB(0,200,255)
 
 -- TITLE
 local title = Instance.new("TextLabel", frame)
-title.Size = UDim2.fromScale(1,0.12)
+title.Size = UDim2.fromScale(1,0.14)
 title.BackgroundTransparency = 1
 title.Text = "AUTO FARM MENU"
 title.TextScaled = true
@@ -136,8 +114,8 @@ title.TextColor3 = Color3.fromRGB(0,200,255)
 
 -- ===== AUTO BRING =====
 local bringLabel = Instance.new("TextLabel", frame)
-bringLabel.Position = UDim2.fromScale(0.05,0.12)
-bringLabel.Size = UDim2.fromScale(0.9,0.08)
+bringLabel.Position = UDim2.fromScale(0.05,0.14)
+bringLabel.Size = UDim2.fromScale(0.9,0.09)
 bringLabel.BackgroundTransparency = 1
 bringLabel.Text = "AUTO NHẶT (BRING)"
 bringLabel.TextScaled = true
@@ -145,8 +123,8 @@ bringLabel.Font = Enum.Font.GothamBold
 bringLabel.TextColor3 = Color3.fromRGB(0,255,120)
 
 local box = Instance.new("TextBox", frame)
-box.Position = UDim2.fromScale(0.08,0.2)
-box.Size = UDim2.fromScale(0.84,0.1)
+box.Position = UDim2.fromScale(0.08,0.24)
+box.Size = UDim2.fromScale(0.84,0.12)
 box.Text = tostring(BRING_LIMIT)
 box.PlaceholderText = "Số coin mỗi lượt"
 box.TextScaled = true
@@ -157,19 +135,19 @@ box.ClearTextOnFocus = false
 Instance.new("UICorner", box).CornerRadius = UDim.new(0,10)
 
 local bringBtn = Instance.new("TextButton", frame)
-bringBtn.Position = UDim2.fromScale(0.08,0.31)
-bringBtn.Size = UDim2.fromScale(0.84,0.1)
+bringBtn.Position = UDim2.fromScale(0.08,0.38)
+bringBtn.Size = UDim2.fromScale(0.84,0.12)
 bringBtn.Text = "BRING: OFF"
 bringBtn.TextScaled = true
 bringBtn.Font = Enum.Font.GothamBold
 bringBtn.BackgroundColor3 = Color3.fromRGB(170,0,0)
 bringBtn.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", bringBtn).CornerRadius = UDim.new(0,10)
+Instance.new("UICorner", bringBtn).CornerRadius = UDim.new(0,12)
 
 -- ===== AUTO SPIN =====
 local spinLabel = Instance.new("TextLabel", frame)
-spinLabel.Position = UDim2.fromScale(0.05,0.43)
-spinLabel.Size = UDim2.fromScale(0.9,0.08)
+spinLabel.Position = UDim2.fromScale(0.05,0.54)
+spinLabel.Size = UDim2.fromScale(0.9,0.09)
 spinLabel.BackgroundTransparency = 1
 spinLabel.Text = "AUTO QUAY (0.2s)"
 spinLabel.TextScaled = true
@@ -177,34 +155,28 @@ spinLabel.Font = Enum.Font.GothamBold
 spinLabel.TextColor3 = Color3.fromRGB(255,200,0)
 
 local spinBtn = Instance.new("TextButton", frame)
-spinBtn.Position = UDim2.fromScale(0.08,0.52)
-spinBtn.Size = UDim2.fromScale(0.84,0.11)
+spinBtn.Position = UDim2.fromScale(0.08,0.64)
+spinBtn.Size = UDim2.fromScale(0.84,0.14)
 spinBtn.Text = "SPIN: OFF"
 spinBtn.TextScaled = true
 spinBtn.Font = Enum.Font.GothamBold
 spinBtn.BackgroundColor3 = Color3.fromRGB(170,0,0)
 spinBtn.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", spinBtn).CornerRadius = UDim.new(0,10)
+Instance.new("UICorner", spinBtn).CornerRadius = UDim.new(0,12)
 
--- ===== AUTO DUPE =====
-local dupeLabel = Instance.new("TextLabel", frame)
-dupeLabel.Position = UDim2.fromScale(0.05,0.65)
-dupeLabel.Size = UDim2.fromScale(0.9,0.08)
-dupeLabel.BackgroundTransparency = 1
-dupeLabel.Text = "AUTO DUPE (RADIOACTIVE COIN)"
-dupeLabel.TextScaled = true
-dupeLabel.Font = Enum.Font.GothamBold
-dupeLabel.TextColor3 = Color3.fromRGB(255,100,100)
-
-local dupeBtn = Instance.new("TextButton", frame)
-dupeBtn.Position = UDim2.fromScale(0.08,0.74)
-dupeBtn.Size = UDim2.fromScale(0.84,0.12)
-dupeBtn.Text = "DUPE: OFF"
-dupeBtn.TextScaled = true
-dupeBtn.Font = Enum.Font.GothamBold
-dupeBtn.BackgroundColor3 = Color3.fromRGB(170,0,0)
-dupeBtn.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", dupeBtn).CornerRadius = UDim.new(0,12)
+-- ===== SMALL ROUND TOGGLE BUTTON (LEFT) =====
+local mini = Instance.new("TextButton", gui)
+mini.Size = UDim2.fromScale(0.045,0.08)
+mini.Position = UDim2.fromScale(0.005,0.45)
+mini.Text = "≡"
+mini.TextScaled = true
+mini.Font = Enum.Font.GothamBold
+mini.BackgroundColor3 = Color3.fromRGB(0,170,255)
+mini.TextColor3 = Color3.new(1,1,1)
+mini.Visible = false
+mini.Active = true
+mini.Draggable = true
+Instance.new("UICorner", mini).CornerRadius = UDim.new(1,0)
 
 -- ====================================
 -- GUI LOGIC
@@ -213,7 +185,7 @@ Instance.new("UICorner", dupeBtn).CornerRadius = UDim.new(0,12)
 box.FocusLost:Connect(function()
     local num = tonumber(box.Text)
     if num then
-        num = math.clamp(math.floor(num), 1, 200)
+        num = math.clamp(math.floor(num), 1, 300)
         BRING_LIMIT = num
         box.Text = tostring(BRING_LIMIT)
     else
@@ -233,10 +205,17 @@ spinBtn.MouseButton1Click:Connect(function()
     spinBtn.BackgroundColor3 = SPIN and Color3.fromRGB(0,170,0) or Color3.fromRGB(170,0,0)
 end)
 
-dupeBtn.MouseButton1Click:Connect(function()
-    DUPE = not DUPE
-    dupeBtn.Text = DUPE and "DUPE: ON" or "DUPE: OFF"
-    dupeBtn.BackgroundColor3 = DUPE and Color3.fromRGB(0,170,0) or Color3.fromRGB(170,0,0)
+-- hide / show GUI
+title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        frame.Visible = false
+        mini.Visible = true
+    end
 end)
 
-print(">> Auto Farm GUI (Bring + Spin + Dupe) loaded")
+mini.MouseButton1Click:Connect(function()
+    frame.Visible = true
+    mini.Visible = false
+end)
+
+print(">> Auto Farm GUI (Bring fast + Spin) loaded")
