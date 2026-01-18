@@ -1,0 +1,221 @@
+-- ====================================
+-- AUTO FARM GUI
+-- Bring coin (fast) + Auto spin
+-- Big GUI + small round toggle button
+-- ====================================
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+
+-- ===== CONFIG =====
+local BRING = false
+local SPIN = false
+
+local BRING_LIMIT = 10
+local SPIN_DELAY = 0.2
+
+-- bring nhanh hơn (gần realtime)
+local lastBring = 0
+local BRING_INTERVAL = 0.15  -- càng nhỏ càng sát, đừng dưới 0.1 dễ lag
+
+-- ===== CHARACTER =====
+local function getHRP()
+    local char = player.Character or player.CharacterAdded:Wait()
+    return char:WaitForChild("HumanoidRootPart")
+end
+
+-- ===== GET COINS =====
+local function getAllCoins()
+    local coins = {}
+    local folder = workspace:FindFirstChild("EventParts", true)
+    if folder then
+        for _, v in pairs(folder:GetDescendants()) do
+            if v:IsA("BasePart") and string.find(string.lower(v.Name), "coin") then
+                table.insert(coins, v)
+            end
+        end
+    end
+    return coins
+end
+
+-- ===== FAST BRING LOOP (Heartbeat) =====
+RunService.Heartbeat:Connect(function()
+    if not BRING then return end
+    if tick() - lastBring < BRING_INTERVAL then return end
+    lastBring = tick()
+
+    pcall(function()
+        local hrp = getHRP()
+        local coins = getAllCoins()
+        local count = 0
+
+        for _, coin in pairs(coins) do
+            if coin and coin.Parent then
+                coin.Anchored = false
+                coin.CanCollide = false
+                coin.CFrame = hrp.CFrame
+                count += 1
+                if count >= BRING_LIMIT then
+                    break
+                end
+            end
+        end
+    end)
+end)
+
+-- ===== AUTO SPIN LOOP =====
+task.spawn(function()
+    local rf = ReplicatedStorage:WaitForChild("Packages")
+        :WaitForChild("Net")
+        :WaitForChild("RF/WheelSpin.Roll")
+
+    while task.wait(SPIN_DELAY) do
+        if SPIN then
+            pcall(function()
+                rf:InvokeServer()
+            end)
+        end
+    end
+end)
+
+-- ====================================
+-- GUI
+-- ====================================
+
+local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+gui.Name = "AutoFarmGUI"
+gui.ResetOnSpawn = false
+
+-- MAIN FRAME (TO HƠN)
+local frame = Instance.new("Frame", gui)
+frame.Size = UDim2.fromScale(0.38, 0.36)
+frame.Position = UDim2.fromScale(0.06, 0.28)
+frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+frame.Active = true
+frame.Draggable = true
+frame.BorderSizePixel = 0
+
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0,18)
+local stroke = Instance.new("UIStroke", frame)
+stroke.Thickness = 2
+stroke.Color = Color3.fromRGB(0,200,255)
+
+-- TITLE
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.fromScale(1,0.14)
+title.BackgroundTransparency = 1
+title.Text = "AUTO FARM MENU"
+title.TextScaled = true
+title.Font = Enum.Font.GothamBold
+title.TextColor3 = Color3.fromRGB(0,200,255)
+
+-- ===== AUTO BRING =====
+local bringLabel = Instance.new("TextLabel", frame)
+bringLabel.Position = UDim2.fromScale(0.05,0.14)
+bringLabel.Size = UDim2.fromScale(0.9,0.09)
+bringLabel.BackgroundTransparency = 1
+bringLabel.Text = "AUTO NHẶT (BRING)"
+bringLabel.TextScaled = true
+bringLabel.Font = Enum.Font.GothamBold
+bringLabel.TextColor3 = Color3.fromRGB(0,255,120)
+
+local box = Instance.new("TextBox", frame)
+box.Position = UDim2.fromScale(0.08,0.24)
+box.Size = UDim2.fromScale(0.84,0.12)
+box.Text = tostring(BRING_LIMIT)
+box.PlaceholderText = "Số coin mỗi lượt"
+box.TextScaled = true
+box.Font = Enum.Font.GothamBold
+box.BackgroundColor3 = Color3.fromRGB(35,35,35)
+box.TextColor3 = Color3.new(1,1,1)
+box.ClearTextOnFocus = false
+Instance.new("UICorner", box).CornerRadius = UDim.new(0,10)
+
+local bringBtn = Instance.new("TextButton", frame)
+bringBtn.Position = UDim2.fromScale(0.08,0.38)
+bringBtn.Size = UDim2.fromScale(0.84,0.12)
+bringBtn.Text = "BRING: OFF"
+bringBtn.TextScaled = true
+bringBtn.Font = Enum.Font.GothamBold
+bringBtn.BackgroundColor3 = Color3.fromRGB(170,0,0)
+bringBtn.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", bringBtn).CornerRadius = UDim.new(0,12)
+
+-- ===== AUTO SPIN =====
+local spinLabel = Instance.new("TextLabel", frame)
+spinLabel.Position = UDim2.fromScale(0.05,0.54)
+spinLabel.Size = UDim2.fromScale(0.9,0.09)
+spinLabel.BackgroundTransparency = 1
+spinLabel.Text = "AUTO QUAY (0.2s)"
+spinLabel.TextScaled = true
+spinLabel.Font = Enum.Font.GothamBold
+spinLabel.TextColor3 = Color3.fromRGB(255,200,0)
+
+local spinBtn = Instance.new("TextButton", frame)
+spinBtn.Position = UDim2.fromScale(0.08,0.64)
+spinBtn.Size = UDim2.fromScale(0.84,0.14)
+spinBtn.Text = "SPIN: OFF"
+spinBtn.TextScaled = true
+spinBtn.Font = Enum.Font.GothamBold
+spinBtn.BackgroundColor3 = Color3.fromRGB(170,0,0)
+spinBtn.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", spinBtn).CornerRadius = UDim.new(0,12)
+
+-- ===== SMALL ROUND TOGGLE BUTTON (LEFT) =====
+local mini = Instance.new("TextButton", gui)
+mini.Size = UDim2.fromScale(0.045,0.08)
+mini.Position = UDim2.fromScale(0.005,0.45)
+mini.Text = "≡"
+mini.TextScaled = true
+mini.Font = Enum.Font.GothamBold
+mini.BackgroundColor3 = Color3.fromRGB(0,170,255)
+mini.TextColor3 = Color3.new(1,1,1)
+mini.Visible = false
+mini.Active = true
+mini.Draggable = true
+Instance.new("UICorner", mini).CornerRadius = UDim.new(1,0)
+
+-- ====================================
+-- GUI LOGIC
+-- ====================================
+
+box.FocusLost:Connect(function()
+    local num = tonumber(box.Text)
+    if num then
+        num = math.clamp(math.floor(num), 1, 300)
+        BRING_LIMIT = num
+        box.Text = tostring(BRING_LIMIT)
+    else
+        box.Text = tostring(BRING_LIMIT)
+    end
+end)
+
+bringBtn.MouseButton1Click:Connect(function()
+    BRING = not BRING
+    bringBtn.Text = BRING and "BRING: ON" or "BRING: OFF"
+    bringBtn.BackgroundColor3 = BRING and Color3.fromRGB(0,170,0) or Color3.fromRGB(170,0,0)
+end)
+
+spinBtn.MouseButton1Click:Connect(function()
+    SPIN = not SPIN
+    spinBtn.Text = SPIN and "SPIN: ON" or "SPIN: OFF"
+    spinBtn.BackgroundColor3 = SPIN and Color3.fromRGB(0,170,0) or Color3.fromRGB(170,0,0)
+end)
+
+-- hide / show GUI
+title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        frame.Visible = false
+        mini.Visible = true
+    end
+end)
+
+mini.MouseButton1Click:Connect(function()
+    frame.Visible = true
+    mini.Visible = false
+end)
+
+print(">> Auto Farm GUI (Bring fast + Spin) loaded")a
