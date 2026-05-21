@@ -1,0 +1,277 @@
+--// SERVICES
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
+local lp = Players.LocalPlayer
+
+--// SETTINGS
+local bringEnabled = false
+local autoSpin = false
+local tpState = false
+local oldCFrame = nil
+
+_G.KillAura = false
+_G.SafeZone = false
+
+local Delay = 0.08
+local bringDelay = 0.01
+local targetPos = Vector3.new(37.79, -226.14, -150.83)
+
+--// GUI
+local gui = Instance.new("ScreenGui", game.CoreGui)
+
+-- SOUND OOF
+local function playClick()
+    local s = Instance.new("Sound", SoundService)
+    s.SoundId = "rbxassetid://12222216" -- oof sound
+    s.Volume = 2
+    s:Play()
+    game.Debris:AddItem(s,2)
+end
+
+-- RAINBOW
+local function rainbow(obj, speed)
+    task.spawn(function()
+        local h = 0
+        while obj and obj.Parent do
+            h += speed or 0.005
+            if h > 1 then h = 0 end
+            obj.BackgroundColor3 = Color3.fromHSV(h,1,1)
+            task.wait(0.01)
+        end
+    end)
+end
+
+-- TOGGLE ICON
+local toggle = Instance.new("ImageButton", gui)
+toggle.Size = UDim2.new(0,60,0,60)
+toggle.Position = UDim2.new(0,10,0,120)
+toggle.Image = "rbxassetid://7072719338"
+toggle.Active = true
+toggle.Draggable = true
+Instance.new("UICorner", toggle).CornerRadius = UDim.new(1,0)
+rainbow(toggle,0.01)
+
+-- MAIN
+local frame = Instance.new("Frame", gui)
+frame.Size = UDim2.new(0,270,0,340)
+frame.Position = UDim2.new(0.1,0,0.3,0)
+frame.Active = true
+frame.Draggable = true
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0,12)
+rainbow(frame,0.005)
+
+toggle.MouseButton1Click:Connect(function()
+    playClick()
+    frame.Visible = not frame.Visible
+end)
+
+-- TITLE
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.new(1,0,0,35)
+title.Text = "💀 PRO MAX HUB"
+title.TextScaled = true
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.new(1,1,1)
+
+-- TAB BUTTONS
+local farmTabBtn = Instance.new("TextButton", frame)
+farmTabBtn.Size = UDim2.new(0.5,0,0,30)
+farmTabBtn.Position = UDim2.new(0,0,0,35)
+farmTabBtn.Text = "Farm"
+
+local autoTabBtn = Instance.new("TextButton", frame)
+autoTabBtn.Size = UDim2.new(0.5,0,0,30)
+autoTabBtn.Position = UDim2.new(0.5,0,0,35)
+autoTabBtn.Text = "Auto"
+
+-- TAB STYLE
+local function selectTab(btn)
+    farmTabBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    autoTabBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    btn.BackgroundColor3 = Color3.fromRGB(0,170,255)
+end
+
+-- CONTAINER
+local farmFrame = Instance.new("Frame", frame)
+farmFrame.Size = UDim2.new(1,0,1,-65)
+farmFrame.Position = UDim2.new(0,0,0,65)
+farmFrame.BackgroundTransparency = 1
+
+local autoFrame = farmFrame:Clone()
+autoFrame.Parent = frame
+autoFrame.Visible = false
+
+-- SWITCH TAB
+farmTabBtn.MouseButton1Click:Connect(function()
+    playClick()
+    farmFrame.Visible = true
+    autoFrame.Visible = false
+    selectTab(farmTabBtn)
+end)
+
+autoTabBtn.MouseButton1Click:Connect(function()
+    playClick()
+    farmFrame.Visible = false
+    autoFrame.Visible = true
+    selectTab(autoTabBtn)
+end)
+
+selectTab(farmTabBtn)
+
+-- BUTTON CREATOR
+local function createBtn(parent,text,y)
+    local b = Instance.new("TextButton", parent)
+    b.Size = UDim2.new(1,-20,0,35)
+    b.Position = UDim2.new(0,10,0,y)
+    b.Text = text
+    b.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    b.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0,8)
+
+    b.MouseButton1Click:Connect(playClick)
+    return b
+end
+
+-- ===== FARM =====
+
+-- VOID KILL
+local tpBtn = createBtn(farmFrame,"Void Kill",10)
+tpBtn.MouseButton1Click:Connect(function()
+    local char = lp.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+
+    tpState = not tpState
+
+    if tpState then
+        oldCFrame = hrp.CFrame
+        hrp.CFrame = CFrame.new(targetPos)
+        tpBtn.Text = "Return"
+    else
+        if oldCFrame then
+            hrp.CFrame = oldCFrame
+        end
+        tpBtn.Text = "Void Kill"
+    end
+end)
+
+-- SAFE
+local safeBtn = createBtn(farmFrame,"Safe Zone: OFF",50)
+safeBtn.MouseButton1Click:Connect(function()
+    _G.SafeZone = not _G.SafeZone
+    safeBtn.Text = "Safe Zone: " .. (_G.SafeZone and "ON" or "OFF")
+end)
+
+-- KILL
+local killBtn = createBtn(farmFrame,"Kill Aura: OFF",90)
+killBtn.MouseButton1Click:Connect(function()
+    _G.KillAura = not _G.KillAura
+    killBtn.Text = "Kill Aura: " .. (_G.KillAura and "ON" or "OFF")
+end)
+
+-- SPEED
+local speedBox = Instance.new("TextBox", farmFrame)
+speedBox.Size = UDim2.new(1,-20,0,35)
+speedBox.Position = UDim2.new(0,10,0,130)
+speedBox.Text = tostring(Delay)
+speedBox.BackgroundColor3 = Color3.fromRGB(0,0,0)
+speedBox.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", speedBox)
+
+speedBox.FocusLost:Connect(function()
+    local v = tonumber(speedBox.Text)
+    if v then Delay = v end
+end)
+
+-- BRING (FIX)
+local bringBtn = createBtn(farmFrame,"Bring: OFF",170)
+bringBtn.MouseButton1Click:Connect(function()
+    bringEnabled = not bringEnabled
+    bringBtn.Text = "Bring: " .. (bringEnabled and "ON" or "OFF")
+end)
+
+-- ===== AUTO =====
+
+local spinBtn = createBtn(autoFrame,"Auto Spin: OFF",10)
+spinBtn.MouseButton1Click:Connect(function()
+    autoSpin = not autoSpin
+    spinBtn.Text = "Auto Spin: " .. (autoSpin and "ON" or "OFF")
+end)
+
+-- ===== LOGIC =====
+
+local function getTool()
+    local char = lp.Character
+    if not char then return end
+    return char:FindFirstChildOfClass("Tool") or lp.Backpack:FindFirstChildOfClass("Tool")
+end
+
+task.spawn(function()
+    while true do
+        if _G.KillAura then
+            pcall(function()
+                local tool = getTool()
+                if not tool then return end
+
+                local zombies = workspace:FindFirstChild("Zombies_Local")
+                if zombies then
+                    for _,z in ipairs(zombies:GetChildren()) do
+                        local hrp = z:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            ReplicatedStorage.GunRemotes.GunHit:FireServer(
+                                tool.Name,
+                                tonumber(string.match(z.Name,"%d+")) or 0,
+                                hrp.Position
+                            )
+                        end
+                    end
+                end
+            end)
+        end
+        task.wait(Delay)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        local hum = lp.Character and lp.Character:FindFirstChild("Humanoid")
+        if hum then
+            hum.HipHeight = _G.SafeZone and 20 or 2
+        end
+        task.wait()
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if bringEnabled then
+            pcall(function()
+                local char = lp.Character
+                if not char then return end
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+
+                local folder = workspace:FindFirstChild("VoidShards")
+                if folder then
+                    for _,v in pairs(folder:GetChildren()) do
+                        if v.Name == "VoidShardPart" then
+                            v.CFrame = hrp.CFrame
+                        end
+                    end
+                end
+            end)
+        end
+        task.wait(bringDelay)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if autoSpin then
+            pcall(function()
+                ReplicatedStorage.EventRemotes.GalacticRequestSpin:InvokeServer()
+            end)
+        end
+        task.wait()
+    end
+end)
